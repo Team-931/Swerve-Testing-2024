@@ -8,6 +8,13 @@ import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 
+import javax.management.loading.PrivateClassLoader;
+
+import com.ctre.phoenix6.StatusSignal;
+import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.controls.VelocityDutyCycle;
+import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.NeutralModeValue;
 import com.revrobotics.CANSparkMax;
 import com.revrobotics.CANSparkLowLevel.MotorType;
 import com.revrobotics.SparkAbsoluteEncoder.Type;
@@ -18,17 +25,20 @@ import com.revrobotics.RelativeEncoder;
 import frc.robot.Constants.ModuleConstants;
 
 public class MAXSwerveModule {
-  private final CANSparkMax m_drivingSparkMax;
+  private final TalonFX drivingTalon;
   private final CANSparkMax m_turningSparkMax;
 
-  private final RelativeEncoder m_drivingEncoder;
+  private final StatusSignal<Double> m_drivingVelocity;
+  private final StatusSignal<Double> m_drivingPosition;
   private final AbsoluteEncoder m_turningEncoder;
 
-  private final SparkPIDController m_drivingPIDController;
+  
   private final SparkPIDController m_turningPIDController;
 
   private double m_chassisAngularOffset = 0;
   private SwerveModuleState m_desiredState = new SwerveModuleState(0.0, new Rotation2d());
+
+  private final VelocityDutyCycle talonCycle;
 
   /**
    * Constructs a MAXSwerveModule and configures the driving and turning motor,
@@ -37,28 +47,30 @@ public class MAXSwerveModule {
    * Encoder.
    */
   public MAXSwerveModule(int drivingCANId, int turningCANId, double chassisAngularOffset) {
-    m_drivingSparkMax = new CANSparkMax(drivingCANId, MotorType.kBrushless);
+    drivingTalon = new TalonFX(drivingCANId);
     m_turningSparkMax = new CANSparkMax(turningCANId, MotorType.kBrushless);
 
     // Factory reset, so we get the SPARKS MAX to a known state before configuring
     // them. This is useful in case a SPARK MAX is swapped out.
-    m_drivingSparkMax.restoreFactoryDefaults();
+    
     m_turningSparkMax.restoreFactoryDefaults();
 
     // Setup encoders and PID controllers for the driving and turning SPARKS MAX.
-    m_drivingEncoder = m_drivingSparkMax.getEncoder();
+
+
+
+    m_drivingVelocity = drivingTalon.getVelocity();
+    m_drivingPosition = drivingTalon.getPosition();
     m_turningEncoder = m_turningSparkMax.getAbsoluteEncoder(Type.kDutyCycle);
-    m_drivingPIDController = m_drivingSparkMax.getPIDController();
+    
     m_turningPIDController = m_turningSparkMax.getPIDController();
-    m_drivingPIDController.setFeedbackDevice(m_drivingEncoder);
+   
     m_turningPIDController.setFeedbackDevice(m_turningEncoder);
 
     // Apply position and velocity conversion factors for the driving encoder. The
     // native units for position and velocity are rotations and RPM, respectively,
     // but we want meters and meters per second to use with WPILib's swerve APIs.
-    m_drivingEncoder.setPositionConversionFactor(ModuleConstants.kDrivingEncoderPositionFactor);
-    m_drivingEncoder.setVelocityConversionFactor(ModuleConstants.kDrivingEncoderVelocityFactor);
-
+   
     // Apply position and velocity conversion factors for the turning encoder. We
     // want these in radians and radians per second to use with WPILib's swerve
     // APIs.
@@ -79,13 +91,7 @@ public class MAXSwerveModule {
 
     // Set the PID gains for the driving motor. Note these are example gains, and you
     // may need to tune them for your own robot!
-    m_drivingPIDController.setP(ModuleConstants.kDrivingP);
-    m_drivingPIDController.setI(ModuleConstants.kDrivingI);
-    m_drivingPIDController.setD(ModuleConstants.kDrivingD);
-    m_drivingPIDController.setFF(ModuleConstants.kDrivingFF);
-    m_drivingPIDController.setOutputRange(ModuleConstants.kDrivingMinOutput,
-        ModuleConstants.kDrivingMaxOutput);
-
+  
     // Set the PID gains for the turning motor. Note these are example gains, and you
     // may need to tune them for your own robot!
     m_turningPIDController.setP(ModuleConstants.kTurningP);
@@ -95,19 +101,40 @@ public class MAXSwerveModule {
     m_turningPIDController.setOutputRange(ModuleConstants.kTurningMinOutput,
         ModuleConstants.kTurningMaxOutput);
 
-    m_drivingSparkMax.setIdleMode(ModuleConstants.kDrivingMotorIdleMode);
+    
     m_turningSparkMax.setIdleMode(ModuleConstants.kTurningMotorIdleMode);
-    m_drivingSparkMax.setSmartCurrentLimit(ModuleConstants.kDrivingMotorCurrentLimit);
+   //not limiting drive current
     m_turningSparkMax.setSmartCurrentLimit(ModuleConstants.kTurningMotorCurrentLimit);
 
     // Save the SPARK MAX configurations. If a SPARK MAX browns out during
     // operation, it will maintain the above configurations.
-    m_drivingSparkMax.burnFlash();
+
+    TalonFXConfiguration driveConfiguration = new TalonFXConfiguration();
+
+    driveConfiguration.Slot0.kP = ModuleConstants.kDrivingP;
+    driveConfiguration.Slot0.kI = ModuleConstants.kDrivingI;
+    driveConfiguration.Slot0.kD = ModuleConstants.kDrivingD;
+    driveConfiguration.Slot0.kV = ModuleConstants.kDrivingFF;
+
+    //set idle
+    driveConfiguration.MotorOutput.NeutralMode = NeutralModeValue.Brake;
+
+
+
+
+    driveConfiguration.Feedback.SensorToMechanismRatio = ModuleConstants.kDrivingMotorReduction;
+
+    talonCycle = new VelocityDutyCycle(0);
+
+
+
+    //drivingTalon.burnFlash();
+    drivingTalon.getConfigurator().apply(driveConfiguration);
     m_turningSparkMax.burnFlash();
 
     m_chassisAngularOffset = chassisAngularOffset;
     m_desiredState.angle = new Rotation2d(m_turningEncoder.getPosition());
-    m_drivingEncoder.setPosition(0);
+    drivingTalon.setPosition(0);
   }
 
   /**
@@ -118,7 +145,7 @@ public class MAXSwerveModule {
   public SwerveModuleState getState() {
     // Apply chassis angular offset to the encoder position to get the position
     // relative to the chassis.
-    return new SwerveModuleState(m_drivingEncoder.getVelocity(),
+    return new SwerveModuleState(m_drivingVelocity.getValueAsDouble(),
         new Rotation2d(m_turningEncoder.getPosition() - m_chassisAngularOffset));
   }
 
@@ -131,7 +158,7 @@ public class MAXSwerveModule {
     // Apply chassis angular offset to the encoder position to get the position
     // relative to the chassis.
     return new SwerveModulePosition(
-        m_drivingEncoder.getPosition(),
+        m_drivingPosition.getValueAsDouble(),
         new Rotation2d(m_turningEncoder.getPosition() - m_chassisAngularOffset));
   }
 
@@ -151,7 +178,8 @@ public class MAXSwerveModule {
         new Rotation2d(m_turningEncoder.getPosition()));
 
     // Command driving and turning SPARKS MAX towards their respective setpoints.
-    m_drivingPIDController.setReference(optimizedDesiredState.speedMetersPerSecond, CANSparkMax.ControlType.kVelocity);
+    drivingTalon.set(optimizedDesiredState.speedMetersPerSecond);
+    //.setControl(talonCycle .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
     m_turningPIDController.setReference(optimizedDesiredState.angle.getRadians(), CANSparkMax.ControlType.kPosition);
 
     m_desiredState = desiredState;
@@ -159,6 +187,6 @@ public class MAXSwerveModule {
 
   /** Zeroes all the SwerveModule encoders. */
   public void resetEncoders() {
-    m_drivingEncoder.setPosition(0);
+    drivingTalon.setPosition(0);
   }
 }
