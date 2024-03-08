@@ -183,8 +183,8 @@ public class MAXSwerveModule {
 
     // Command driving and turning SPARKS MAX towards their respective setpoints.
     drivingTalon//.set(optimizedDesiredState.speedMetersPerSecond);
-    .setControl(talonCycle .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
-    //.setControl(talonCycleVoltage .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
+    //.setControl(talonCycle .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
+    .setControl(talonCycleVoltage .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
     m_turningPIDController.setReference(optimizedDesiredState.angle.getRadians(), CANSparkMax.ControlType.kPosition);
 
     m_desiredState = desiredState;
