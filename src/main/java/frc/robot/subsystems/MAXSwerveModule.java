@@ -11,6 +11,7 @@ import edu.wpi.first.math.kinematics.SwerveModuleState;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.VelocityDutyCycle;
+import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import com.revrobotics.CANSparkMax;
@@ -35,6 +36,7 @@ public class MAXSwerveModule {
   private SwerveModuleState m_desiredState = new SwerveModuleState(0.0, new Rotation2d());
 
   private final VelocityDutyCycle talonCycle;
+  private final VelocityVoltage  talonCycleVoltage;
 
   /**
    * Constructs a MAXSwerveModule and configures the driving and turning motor,
@@ -112,6 +114,11 @@ public class MAXSwerveModule {
     driveConfiguration.Slot0.kD = ModuleConstants.kDrivingD;
     driveConfiguration.Slot0.kV = ModuleConstants.kDrivingFF;
 
+    driveConfiguration.Slot1.kP = 12 /*volts*/ * ModuleConstants.kDrivingP;
+    driveConfiguration.Slot1.kI = 12 /*volts*/ * ModuleConstants.kDrivingI;
+    driveConfiguration.Slot1.kD = 12 /*volts*/ * ModuleConstants.kDrivingD;
+    driveConfiguration.Slot1.kV = 12 /*volts*/ * ModuleConstants.kDrivingFF;
+
     //set idle
     driveConfiguration.MotorOutput.NeutralMode = NeutralModeValue.Brake;
 
@@ -121,7 +128,8 @@ public class MAXSwerveModule {
     driveConfiguration.Feedback.SensorToMechanismRatio = ModuleConstants.kDrivingMotorReduction;
 
     talonCycle = new VelocityDutyCycle(0);
-
+    
+    talonCycleVoltage = new VelocityVoltage(0).withSlot(1);
 
 
     //drivingTalon.burnFlash();
@@ -176,6 +184,7 @@ public class MAXSwerveModule {
     // Command driving and turning SPARKS MAX towards their respective setpoints.
     drivingTalon//.set(optimizedDesiredState.speedMetersPerSecond);
     .setControl(talonCycle .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
+    //.setControl(talonCycleVoltage .withVelocity(optimizedDesiredState.speedMetersPerSecond) );
     m_turningPIDController.setReference(optimizedDesiredState.angle.getRadians(), CANSparkMax.ControlType.kPosition);
 
     m_desiredState = desiredState;
